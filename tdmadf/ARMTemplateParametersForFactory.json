@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "tdmadf"
+		},
+		"ADT_Synapse_connectionString": {
+			"value": ""
+		},
+		"Du_fnc_functionKey": {
+			"value": ""
+		},
+		"Prod_Synapse_connectionString": {
+			"value": ""
+		},
+		"ls_staging_storage_connectionString": {
+			"value": ""
+		},
+		"Du_fnc_properties_typeProperties_functionAppUrl": {
+			"value": "https://durablefnc.azurewebsites.net"
+		}
+	}
+}

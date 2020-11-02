@@ -1,0 +1,411 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "tdmadf"
+		},
+		"ADT_Synapse_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'ADT_Synapse'"
+		},
+		"Du_fnc_functionKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'functionKey' of 'Du_fnc'"
+		},
+		"Prod_Synapse_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'Prod_Synapse'"
+		},
+		"ls_staging_storage_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'ls_staging_storage'"
+		},
+		"Du_fnc_properties_typeProperties_functionAppUrl": {
+			"type": "string",
+			"defaultValue": "https://durablefnc.azurewebsites.net"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/ADT_Synapse')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('ADT_Synapse_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Du_fnc')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureFunction",
+				"typeProperties": {
+					"functionAppUrl": "[parameters('Du_fnc_properties_typeProperties_functionAppUrl')]",
+					"functionKey": {
+						"type": "SecureString",
+						"value": "[parameters('Du_fnc_functionKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Prod_Synapse')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('Prod_Synapse_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_staging_storage')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobStorage",
+				"typeProperties": {
+					"connectionString": "[parameters('ls_staging_storage_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_synapse_target')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ADT_Synapse",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"table_schema": {
+						"type": "string"
+					},
+					"table_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureSqlDWTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().table_schema",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().table_name",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ADT_Synapse')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_synapse_targetdb_lookup')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ADT_Synapse",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlDWTable",
+				"schema": [],
+				"typeProperties": {}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ADT_Synapse')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_synpase_source')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "Prod_Synapse",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"table_schema": {
+						"type": "string"
+					},
+					"table_name": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureSqlDWTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().table_schema",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().table_name",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/Prod_Synapse')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_test_data_mgmt')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"description": "Generate DACPAC, Deploy DACPAC and load data for deployed objects",
+				"activities": [
+					{
+						"name": "a_generate_dacpac_from_prod_to_dev",
+						"description": "Azure function to generate dacpac from source based on Schema and deploy dacpac on target Synapse database",
+						"type": "AzureFunctionActivity",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"functionName": "DacpacMgmtHttpStart",
+							"method": "GET",
+							"headers": {},
+							"body": "{\n\"inp': \"1\"\n}"
+						},
+						"linkedServiceName": {
+							"referenceName": "Du_fnc",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "a_until_dacpac_is_deployed",
+						"description": "wait until the dacpac is generated from the source and deployed to the target database",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "a_generate_dacpac_from_prod_to_dev",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@not(or(equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Pending'), equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Running')))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_wait_for_30_sec",
+									"description": "Wait for 30 seconds",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 45
+									}
+								},
+								{
+									"name": "a_check_azure_fnc_status",
+									"description": "Check if Azure Function is still running by looking at output of status uri",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "a_wait_for_30_sec",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@activity('a_generate_dacpac_from_prod_to_dev').output.statusQueryGetUri",
+											"type": "Expression"
+										},
+										"method": "GET",
+										"headers": {}
+									}
+								}
+							],
+							"timeout": "7.00:00:00"
+						}
+					},
+					{
+						"name": "a_lookup_tables_to_copy",
+						"description": "Read sys tables to get the schema and table name for copy activity.",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_until_dacpac_is_deployed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'ATHENA_DW' ORDER BY TABLE_NAME",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_synapse_targetdb_lookup",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_for_each_to_copy",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_tables_to_copy",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('a_lookup_tables_to_copy').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_copy_prod_to_dev",
+									"description": "Copy tables data from prod to dev environment",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "SqlDWSource",
+											"queryTimeout": "02:00:00",
+											"partitionOption": "None"
+										},
+										"sink": {
+											"type": "SqlDWSink",
+											"allowPolyBase": true,
+											"polyBaseSettings": {
+												"rejectValue": 0,
+												"rejectType": "value",
+												"useTypeDefault": false
+											}
+										},
+										"enableStaging": true,
+										"stagingSettings": {
+											"linkedServiceName": {
+												"referenceName": "ls_staging_storage",
+												"type": "LinkedServiceReference"
+											},
+											"path": "data/"
+										}
+									},
+									"inputs": [
+										{
+											"referenceName": "ds_synpase_source",
+											"type": "DatasetReference",
+											"parameters": {
+												"table_schema": {
+													"value": "@item().TABLE_SCHEMA",
+													"type": "Expression"
+												},
+												"table_name": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "ds_synapse_target",
+											"type": "DatasetReference",
+											"parameters": {
+												"table_schema": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												},
+												"table_name": {
+													"value": "@item().TABLE_SCHEMA",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						}
+					}
+				],
+				"annotations": [],
+				"lastPublishTime": "2020-11-02T22:25:21Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/Du_fnc')]",
+				"[concat(variables('factoryId'), '/datasets/ds_synapse_targetdb_lookup')]",
+				"[concat(variables('factoryId'), '/datasets/ds_synpase_source')]",
+				"[concat(variables('factoryId'), '/datasets/ds_synapse_target')]",
+				"[concat(variables('factoryId'), '/linkedServices/ls_staging_storage')]"
+			]
+		}
+	]
+}
