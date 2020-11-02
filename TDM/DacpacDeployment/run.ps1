@@ -54,6 +54,7 @@ try {
     $ExtractTablesList += " /p:TableData=" + $Row.TABLE_NAME
   }
 
+  # https://github.com/NowinskiK/DeploymentContributorFilterer
   # Generate DACPAC
   $ExtractDacpacCommand = $env:DACPAC_EXTRACT_COMMAND
   $DacpacPath = "$ExecutionDirectory\athena_$DateTime.dacpac"
