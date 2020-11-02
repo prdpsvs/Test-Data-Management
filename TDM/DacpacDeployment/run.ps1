@@ -68,7 +68,7 @@ try {
 
   # Generate DACPAC
   Set-Location -Path $env:SQL_PACKAGE_BIN_PATH
-  Invoke-Expression  $ExtractDacpacCommand #| Out-Null
+  Invoke-Expression  $ExtractDacpacCommand | Out-Null
 
   # Deploy DACPAC
   $PublishDacpacCommand = $env:DACPAC_PUBLISH_COMMAND
@@ -86,7 +86,7 @@ try {
 
   # Generate DACPAC
   Set-Location -Path $env:SQL_PACKAGE_BIN_PATH
-  Invoke-Expression  $PublishDacpacCommand #| Out-Null
+  Invoke-Expression  $PublishDacpacCommand | Out-Null
 
   $output = 'Success'
 }
