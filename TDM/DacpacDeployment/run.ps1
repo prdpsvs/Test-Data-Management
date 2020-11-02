@@ -4,13 +4,13 @@ $output = @()
 
 try {
 
-  Write-Host "Dacpac scripting started"
-  get-childitem -path $env:TEMP -Recurse  -Filter "TDM_*" | remove-item -Recurse -Force
+  Write-Host $env:TEMP
+  # get-childitem -path $env:TEMP -Recurse  -Filter "TDM_*" | remove-item -Recurse -Force
   # Creating a folder for each execution
   $DateTime = Get-Date -Format "yyyyMMddHHmm"
-  $ExecutionId = 'TDM_'+ $DateTime
 
-  $ExecutionDirectory = New-Item -Path $env:TEMP -Name $ExecutionId -ItemType "directory"
+  # $ExecutionDirectory = New-Item -Path $env:TEMP -Name $ExecutionId -ItemType "directory"
+    $ExecutionDirectory = $env:TEMP
   Write-Host "Base Directory is $ExecutionDirectory"
 
   #Connect to target database
@@ -54,10 +54,11 @@ try {
     $ExtractTablesList += " /p:TableData=" + $Row.TABLE_NAME
   }
 
+  # Generate DACPAC
   $ExtractDacpacCommand = $env:DACPAC_EXTRACT_COMMAND
   $DacpacPath = "$ExecutionDirectory\athena_$DateTime.dacpac"
 
-  # #Apply connection properties 
+  # Apply connection properties 
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[DBNAME]", $env:Source_DatabaseName)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[ServerName]", $env:Source_ServerName)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[username]", $env:Source_UserId)
@@ -65,16 +66,14 @@ try {
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[Tables]", $ExtractTablesList)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[FilePath]", $DacpacPath)
   Write-Host "Command to Extract DACPAC -$ExtractDacpacCommand"
-
-  # Generate DACPAC
-  Set-Location -Path $env:SQL_PACKAGE_BIN_PATH
-  Invoke-Expression  $ExtractDacpacCommand | Out-Null
+  Write-Debug "$env:SQL_PACKAGE_BIN_PATH$ExtractDacpacCommand"
+  Invoke-Expression   "$env:SQL_PACKAGE_BIN_PATH$ExtractDacpacCommand" #| Out-Null
 
   # Deploy DACPAC
   $PublishDacpacCommand = $env:DACPAC_PUBLISH_COMMAND
   $ReportPath = "$ExecutionDirectory\athena_report_$DateTime.xml"
 
-  # #Apply connection properties 
+  # Apply connection properties 
   $PublishDacpacCommand = $PublishDacpacCommand.replace("[DBNAME]", $env:Target_DatabaseName)
   $PublishDacpacCommand = $PublishDacpacCommand.replace("[ServerName]", $env:Target_ServerName)
   $PublishDacpacCommand = $PublishDacpacCommand.replace("[username]", $env:Target_UserId)
@@ -83,10 +82,8 @@ try {
   $PublishDacpacCommand = $PublishDacpacCommand.replace("[ReportPath]",$ReportPath)
 
   Write-Host "Command to publish DACPAC -$PublishDacpacCommand"
-
-  # Generate DACPAC
-  Set-Location -Path $env:SQL_PACKAGE_BIN_PATH
-  Invoke-Expression  $PublishDacpacCommand | Out-Null
+  Write-Debug "$env:SQL_PACKAGE_BIN_PATH$PublishDacpacCommand"
+  Invoke-Expression  "$env:SQL_PACKAGE_BIN_PATH$PublishDacpacCommand" #| Out-Null
 
   $output = 'Success'
 }
