@@ -1,0 +1,13 @@
+{
+	"name": "ds_synapse_targetdb_lookup",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "ADT_Synapse",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzureSqlDWTable",
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
