@@ -31,28 +31,28 @@ try {
   }
   $sqlConnToTargetDB.Close();
 
-  #Connect to source database
-  $SOURCE_CONNECTIONSTRING = "Server=$env:Source_ServerName;Initial Catalog=$env:Source_DatabaseName;Persist Security Info=False;User ID=$env:Source_UserId;Password=$env:Source_Password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+  # #Connect to source database
+  # $SOURCE_CONNECTIONSTRING = "Server=$env:Source_ServerName;Initial Catalog=$env:Source_DatabaseName;Persist Security Info=False;User ID=$env:Source_UserId;Password=$env:Source_Password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 
-  $sqlConnToSourceDB = New-Object System.Data.SqlClient.SqlConnection
-  $sqlConnToSourceDB.ConnectionString = $SOURCE_CONNECTIONSTRING
-  $sqlcmdToSourceDB = New-Object System.Data.SqlClient.SqlCommand
-  $sqlcmdToSourceDB.Connection = $sqlConnToSourceDB
-  $sqlcmdToSourceDB.CommandText = $env:DDL_SCHEMA_QUERY
-  $sqlConnToSourceDB.Open()
-  $adp = New-Object System.Data.SqlClient.SqlDataAdapter $sqlcmdToSourceDB
+  # $sqlConnToSourceDB = New-Object System.Data.SqlClient.SqlConnection
+  # $sqlConnToSourceDB.ConnectionString = $SOURCE_CONNECTIONSTRING
+  # $sqlcmdToSourceDB = New-Object System.Data.SqlClient.SqlCommand
+  # $sqlcmdToSourceDB.Connection = $sqlConnToSourceDB
+  # $sqlcmdToSourceDB.CommandText = $env:DDL_SCHEMA_QUERY
+  # $sqlConnToSourceDB.Open()
+  # $adp = New-Object System.Data.SqlClient.SqlDataAdapter $sqlcmdToSourceDB
 
-  # Get all the tables from Source tables from Athena_Dw schema
-  $dataset = New-Object System.Data.DataSet
-  $adp.Fill($dataset) | Out-Null
-  $sqlConnToSourceDB.Close();
+  # # Get all the tables from Source tables from Athena_Dw schema
+  # $dataset = New-Object System.Data.DataSet
+  # $adp.Fill($dataset) | Out-Null
+  # $sqlConnToSourceDB.Close();
 
-  # Loop through each table and add the table name to the SQLPackage Command
-  $ExtractTablesList = ""
-  foreach ($Row in $dataset.Tables[0])
-  { 
-    $ExtractTablesList += " /p:TableData=" + $Row.TABLE_NAME
-  }
+  # # Loop through each table and add the table name to the SQLPackage Command
+  # $ExtractTablesList = ""
+  # foreach ($Row in $dataset.Tables[0])
+  # { 
+  #   $ExtractTablesList += " /p:TableData=" + $Row.TABLE_NAME
+  # }
 
   # https://github.com/NowinskiK/DeploymentContributorFilterer
   # Generate DACPAC
@@ -64,7 +64,7 @@ try {
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[ServerName]", $env:Source_ServerName)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[username]", $env:Source_UserId)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[Password]", $env:Source_Password)
-  $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[Tables]", $ExtractTablesList)
+  # $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[Tables]", $ExtractTablesList)
   $ExtractDacpacCommand = $ExtractDacpacCommand.replace("[FilePath]", $DacpacPath)
   Write-Host "Command to Extract DACPAC -$ExtractDacpacCommand"
   Write-Debug "$env:SQL_PACKAGE_BIN_PATH$ExtractDacpacCommand"
