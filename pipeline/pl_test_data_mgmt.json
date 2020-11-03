@@ -198,11 +198,11 @@
 									"type": "DatasetReference",
 									"parameters": {
 										"table_schema": {
-											"value": "@item().TABLE_NAME",
+											"value": "@item().TABLE_SCHEMA",
 											"type": "Expression"
 										},
 										"table_name": {
-											"value": "@item().TABLE_SCHEMA",
+											"value": "@item().TABLE_NAME",
 											"type": "Expression"
 										}
 									}
