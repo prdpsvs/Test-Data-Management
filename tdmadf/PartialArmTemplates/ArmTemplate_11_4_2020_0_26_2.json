@@ -6,26 +6,6 @@
 			"type": "string",
 			"metadata": "Data Factory name",
 			"defaultValue": "tdmadf"
-		},
-		"ADT_Synapse_connectionString": {
-			"type": "secureString",
-			"metadata": "Secure string for 'connectionString' of 'ADT_Synapse'"
-		},
-		"Du_fnc_functionKey": {
-			"type": "secureString",
-			"metadata": "Secure string for 'functionKey' of 'Du_fnc'"
-		},
-		"Prod_Synapse_connectionString": {
-			"type": "secureString",
-			"metadata": "Secure string for 'connectionString' of 'Prod_Synapse'"
-		},
-		"ls_staging_storage_connectionString": {
-			"type": "secureString",
-			"metadata": "Secure string for 'connectionString' of 'ls_staging_storage'"
-		},
-		"Du_fnc_properties_typeProperties_functionAppUrl": {
-			"type": "string",
-			"defaultValue": "https://durablefnc.azurewebsites.net"
 		}
 	},
 	"variables": {
@@ -55,7 +35,6 @@
 						"typeProperties": {
 							"functionName": "DacpacMgmtHttpStart",
 							"method": "GET",
-							"headers": {},
 							"body": "{\n\"inp': \"1\"\n}"
 						},
 						"linkedServiceName": {
@@ -117,8 +96,7 @@
 											"value": "@activity('a_generate_dacpac_from_prod_to_dev').output.statusQueryGetUri",
 											"type": "Expression"
 										},
-										"method": "GET",
-										"headers": {}
+										"method": "GET"
 									}
 								}
 							],
@@ -154,8 +132,7 @@
 							},
 							"dataset": {
 								"referenceName": "ds_synapse_targetdb_lookup",
-								"type": "DatasetReference",
-								"parameters": {}
+								"type": "DatasetReference"
 							},
 							"firstRowOnly": false
 						}
@@ -254,156 +231,6 @@
 				],
 				"annotations": [],
 				"lastPublishTime": "2020-11-02T22:25:21Z"
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/Du_fnc')]",
-				"[concat(variables('factoryId'), '/datasets/ds_synapse_targetdb_lookup')]",
-				"[concat(variables('factoryId'), '/datasets/ds_synpase_source')]",
-				"[concat(variables('factoryId'), '/datasets/ds_synapse_target')]",
-				"[concat(variables('factoryId'), '/linkedServices/ls_staging_storage')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/ds_synapse_target')]",
-			"type": "Microsoft.DataFactory/factories/datasets",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"linkedServiceName": {
-					"referenceName": "ADT_Synapse",
-					"type": "LinkedServiceReference"
-				},
-				"parameters": {
-					"table_schema": {
-						"type": "string"
-					},
-					"table_name": {
-						"type": "string"
-					}
-				},
-				"annotations": [],
-				"type": "AzureSqlDWTable",
-				"schema": [],
-				"typeProperties": {
-					"schema": {
-						"value": "@dataset().table_schema",
-						"type": "Expression"
-					},
-					"table": {
-						"value": "@dataset().table_name",
-						"type": "Expression"
-					}
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/ADT_Synapse')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/ds_synapse_targetdb_lookup')]",
-			"type": "Microsoft.DataFactory/factories/datasets",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"linkedServiceName": {
-					"referenceName": "ADT_Synapse",
-					"type": "LinkedServiceReference"
-				},
-				"annotations": [],
-				"type": "AzureSqlDWTable",
-				"schema": [],
-				"typeProperties": {}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/ADT_Synapse')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/ds_synpase_source')]",
-			"type": "Microsoft.DataFactory/factories/datasets",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"linkedServiceName": {
-					"referenceName": "Prod_Synapse",
-					"type": "LinkedServiceReference"
-				},
-				"parameters": {
-					"table_schema": {
-						"type": "string"
-					},
-					"table_name": {
-						"type": "string"
-					}
-				},
-				"annotations": [],
-				"type": "AzureSqlDWTable",
-				"schema": [],
-				"typeProperties": {
-					"schema": {
-						"value": "@dataset().table_schema",
-						"type": "Expression"
-					},
-					"table": {
-						"value": "@dataset().table_name",
-						"type": "Expression"
-					}
-				}
-			},
-			"dependsOn": [
-				"[concat(variables('factoryId'), '/linkedServices/Prod_Synapse')]"
-			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/ADT_Synapse')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureSqlDW",
-				"typeProperties": {
-					"connectionString": "[parameters('ADT_Synapse_connectionString')]"
-				}
-			},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/Du_fnc')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureFunction",
-				"typeProperties": {
-					"functionAppUrl": "[parameters('Du_fnc_properties_typeProperties_functionAppUrl')]",
-					"functionKey": {
-						"type": "SecureString",
-						"value": "[parameters('Du_fnc_functionKey')]"
-					}
-				}
-			},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/Prod_Synapse')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureSqlDW",
-				"typeProperties": {
-					"connectionString": "[parameters('Prod_Synapse_connectionString')]"
-				}
-			},
-			"dependsOn": []
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/ls_staging_storage')]",
-			"type": "Microsoft.DataFactory/factories/linkedServices",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"annotations": [],
-				"type": "AzureBlobStorage",
-				"typeProperties": {
-					"connectionString": "[parameters('ls_staging_storage_connectionString')]"
-				}
 			},
 			"dependsOn": []
 		}
