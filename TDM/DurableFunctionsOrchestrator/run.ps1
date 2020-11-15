@@ -1,7 +1,7 @@
 param($Context)
 
-$value = 'hi'
-$output = Invoke-ActivityFunction -FunctionName 'DacpacDeployment' -Input $value
+$SqlPackageFilters = $Context.Input
+$output = Invoke-ActivityFunction -FunctionName 'DacpacDeployment' -Input $SqlPackageFilters
 $output
 
 

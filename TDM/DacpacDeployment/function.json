@@ -1,7 +1,7 @@
 {
   "bindings": [
     {
-      "name": "InputData",
+      "name": "SqlPackageFilters",
       "type": "activityTrigger",
       "direction": "in"
     }
