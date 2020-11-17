@@ -1,0 +1,64 @@
+{
+	"name": "ds_prod_synapse",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "ls_prod_synapse_athena",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzureSqlDWTable",
+		"schema": [
+			{
+				"name": "TABLE_EXECUTION_ID",
+				"type": "bigint",
+				"precision": 19
+			},
+			{
+				"name": "OBJECT_ID",
+				"type": "bigint",
+				"precision": 19
+			},
+			{
+				"name": "TABLE_SCHEMA_NAME",
+				"type": "varchar"
+			},
+			{
+				"name": "TABLE_NAME",
+				"type": "varchar"
+			},
+			{
+				"name": "ADLS_TABLE_FOLDER_PATH",
+				"type": "varchar"
+			},
+			{
+				"name": "COPY_PIPELINE_RUN_ID",
+				"type": "uniqueidentifier"
+			},
+			{
+				"name": "COPY_ACTIVITY_RUN_ID",
+				"type": "uniqueidentifier"
+			},
+			{
+				"name": "ADF_ACTIVITY_EXECUTION_STATUS",
+				"type": "nvarchar"
+			},
+			{
+				"name": "CREATE_DB_TIMESTAMP_UTC",
+				"type": "datetime",
+				"precision": 23,
+				"scale": 3
+			},
+			{
+				"name": "UPDATE_DB_TIMESTAMP_UTC",
+				"type": "datetime",
+				"precision": 23,
+				"scale": 3
+			}
+		],
+		"typeProperties": {
+			"schema": "TDM",
+			"table": "DATA_COPY_PIPELINE_EXECUTION_LOG"
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
