@@ -1,0 +1,423 @@
+{
+	"name": "pl_prod_athena_spt_data_lake_copy",
+	"properties": {
+		"activities": [
+			{
+				"name": "Set execution id",
+				"description": "This execution id is used to track the status of copy activity",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "execution_id",
+					"value": {
+						"value": "@concat(formatDateTime(utcnow(),'yyyy'),formatDateTime(utcnow(),'MM'),formatDateTime(utcnow(),'dd'),formatDateTime(utcnow(),'HH'),formatDateTime(utcnow(),'mm'))",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "a_sp_create_pipeline_parameters",
+				"description": "Invoke SP with Execution Id to insert tables metadata into [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] for current execution",
+				"type": "SqlServerStoredProcedure",
+				"dependsOn": [
+					{
+						"activity": "Set execution id",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"storedProcedureName": "[TDM].[ADD_PIPELINE_EXECUTION_PARAMETERS_SP]",
+					"storedProcedureParameters": {
+						"TABLE_EXECUTION_ID": {
+							"value": {
+								"value": "@int(variables('execution_id'))",
+								"type": "Expression"
+							},
+							"type": "Int64"
+						}
+					}
+				},
+				"linkedServiceName": {
+					"referenceName": "ls_prod_synapse_athena",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "a_lookup_pipeline_execution_parameters",
+				"description": "Fetch rows for current execution, inserted by stored procedure in previous step",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "a_sp_create_pipeline_parameters",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlDWSource",
+						"sqlReaderQuery": {
+							"value": "SELECT TABLE_EXECUTION_ID, \n[OBJECT_ID], \nTABLE_SCHEMA_NAME, \nTABLE_NAME, \nADLS_TABLE_FOLDER_PATH,\n0 AS IS_MASKED,\n'' AS QUERY\nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG]\nWHERE TABLE_EXECUTION_ID = @{variables('execution_id')}\nAND TABLE_NAME NOT IN ( SELECT TABLE_NAME FROM TDM.DATA_MASKING_QUERIES WHERE SCHEMA_NAME = 'ATHENA_DW')\n\n\nUNION ALL\n\nSELECT P.TABLE_EXECUTION_ID, \nP.[OBJECT_ID], \nP.TABLE_SCHEMA_NAME, \nP.TABLE_NAME, \nP.ADLS_TABLE_FOLDER_PATH,\n1 AS IS_MASKED,\nD.QUERY\nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] P\nINNER JOIN TDM.DATA_MASKING_QUERIES D ON P.TABLE_NAME = D.TABLE_NAME\nAND P.TABLE_SCHEMA_NAME = D.[SCHEMA_NAME]\nWHERE P.TABLE_EXECUTION_ID = @{variables('execution_id')}",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "ds_synapse_lookup_tables",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "a_for_each_table",
+				"description": "Execute for each activity for each row available from look up activity",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "a_lookup_pipeline_execution_parameters",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('a_lookup_pipeline_execution_parameters').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "a_if_table_masked",
+							"type": "IfCondition",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@equals(item().IS_MASKED,1)",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "a_copy_synapse_adls",
+										"description": "Copy data from Synapse ATHENA to SPT non prod data lake",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "SqlDWSource",
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "ds_prod_generic_athena",
+												"type": "DatasetReference",
+												"parameters": {
+													"TABLE_SCHEMA": {
+														"value": "@item().TABLE_SCHEMA_NAME",
+														"type": "Expression"
+													},
+													"TABLE_NAME": {
+														"value": "@item().TABLE_NAME",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "ds_spt_datalake",
+												"type": "DatasetReference",
+												"parameters": {
+													"folder_path": {
+														"value": "@item().ADLS_TABLE_FOLDER_PATH",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "a_sp_update_copy_status_success",
+										"description": "Update copy status, pipeline run id, activity run id on pipeline execution parameters table for a given table ",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "a_copy_synapse_adls",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[TDM].[UPDATE_ADF_COPY_ACTIVITY_SP]",
+											"storedProcedureParameters": {
+												"ADF_ACTIVITY_RUN_ID": {
+													"value": {
+														"value": "@activity('a_copy_synapse_adls').ActivityRunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"ADF_ACTIVITY_STATUS": {
+													"value": {
+														"value": "@activity('a_copy_synapse_adls').output.errors",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"ADF_PIPELINE_RUN_ID": {
+													"value": {
+														"value": "@pipeline().RunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"TABLE_EXECUTION_ID": {
+													"value": {
+														"value": "@int(variables('execution_id'))",
+														"type": "Expression"
+													},
+													"type": "Int64"
+												},
+												"TABLE_ID": {
+													"value": {
+														"value": "@item().OBJECT_ID",
+														"type": "Expression"
+													},
+													"type": "Int32"
+												},
+												"UPDATE_DB_TIMESTAMP": {
+													"value": {
+														"value": "@utcnow()",
+														"type": "Expression"
+													},
+													"type": "DateTime"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "ls_prod_synapse_athena",
+											"type": "LinkedServiceReference"
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "a_copy_synapse_adls_with_data_mask",
+										"description": "Copy data from Synapse ATHENA to SPT non prod data lake",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "SqlDWSource",
+												"sqlReaderQuery": {
+													"value": "@item().QUERY",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"translator": {
+												"type": "TabularTranslator",
+												"typeConversion": true,
+												"typeConversionSettings": {
+													"allowDataTruncation": true,
+													"treatBooleanAsNumber": false
+												}
+											}
+										},
+										"inputs": [
+											{
+												"referenceName": "ds_prod_generic_athena",
+												"type": "DatasetReference",
+												"parameters": {
+													"TABLE_SCHEMA": {
+														"value": "@item().TABLE_SCHEMA_NAME",
+														"type": "Expression"
+													},
+													"TABLE_NAME": {
+														"value": "@item().TABLE_NAME",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "ds_spt_datalake",
+												"type": "DatasetReference",
+												"parameters": {
+													"folder_path": {
+														"value": "@item().ADLS_TABLE_FOLDER_PATH",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "a_sp_update_copy_status_success_data_mask",
+										"description": "Update copy status, pipeline run id, activity run id on pipeline execution parameters table for a given table ",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "a_copy_synapse_adls_with_data_mask",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[TDM].[UPDATE_ADF_COPY_ACTIVITY_SP]",
+											"storedProcedureParameters": {
+												"ADF_ACTIVITY_RUN_ID": {
+													"value": {
+														"value": "@activity('a_copy_synapse_adls_with_data_mask').ActivityRunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"ADF_ACTIVITY_STATUS": {
+													"value": {
+														"value": "@activity('a_copy_synapse_adls_with_data_mask').output.errors",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"ADF_PIPELINE_RUN_ID": {
+													"value": {
+														"value": "@pipeline().RunId",
+														"type": "Expression"
+													},
+													"type": "String"
+												},
+												"TABLE_EXECUTION_ID": {
+													"value": {
+														"value": "@int(variables('execution_id'))",
+														"type": "Expression"
+													},
+													"type": "Int64"
+												},
+												"TABLE_ID": {
+													"value": {
+														"value": "@item().OBJECT_ID",
+														"type": "Expression"
+													},
+													"type": "Int32"
+												},
+												"UPDATE_DB_TIMESTAMP": {
+													"value": {
+														"value": "@utcnow()",
+														"type": "Expression"
+													},
+													"type": "DateTime"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "ls_prod_synapse_athena",
+											"type": "LinkedServiceReference"
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			}
+		],
+		"variables": {
+			"execution_id": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2020-11-15T07:50:40Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
