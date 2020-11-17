@@ -1,0 +1,31 @@
+{
+	"name": "ds_adt_synapse_generic",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "ls_adt_synapse_generic",
+			"type": "LinkedServiceReference"
+		},
+		"parameters": {
+			"TABLE_NAME": {
+				"type": "string"
+			},
+			"SCHEMA_NAME": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "AzureSqlDWTable",
+		"schema": [],
+		"typeProperties": {
+			"schema": {
+				"value": "@dataset().SCHEMA_NAME",
+				"type": "Expression"
+			},
+			"table": {
+				"value": "@dataset().TABLE_NAME",
+				"type": "Expression"
+			}
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
