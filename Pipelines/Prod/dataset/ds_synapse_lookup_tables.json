@@ -1,0 +1,13 @@
+{
+	"name": "ds_synapse_lookup_tables",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "ls_prod_synapse_athena",
+			"type": "LinkedServiceReference"
+		},
+		"annotations": [],
+		"type": "AzureSqlDWTable",
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
