@@ -110,7 +110,7 @@
 					},
 					"activities": [
 						{
-							"name": "a_if_table_masked",
+							"name": "a_is_table_masked",
 							"type": "IfCondition",
 							"dependsOn": [],
 							"userProperties": [],
