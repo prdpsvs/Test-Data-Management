@@ -1,0 +1,708 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adt-tdmdf"
+		},
+		"ls_adt_az_fnc_functionKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'functionKey' of 'ls_adt_az_fnc'"
+		},
+		"ls_adt_synapse_athena_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'ls_adt_synapse_athena'"
+		},
+		"ls_adt_synapse_generic_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'ls_adt_synapse_generic'"
+		},
+		"ls_prod_synapse_athena_connectionString": {
+			"type": "secureString",
+			"metadata": "Secure string for 'connectionString' of 'ls_prod_synapse_athena'"
+		},
+		"ls_spt_datalake_accountKey": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accountKey' of 'ls_spt_datalake'"
+		},
+		"ls_adt_az_fnc_properties_typeProperties_functionAppUrl": {
+			"type": "string",
+			"defaultValue": "https://generatefacpac.azurewebsites.net"
+		},
+		"ls_spt_datalake_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://sptathenasa.dfs.core.windows.net"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_tdm_non_prd_pipeline')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "a_lookup_tables_from_prod",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_for_each_drop_tables_from_target",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_tables_from_prod",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('a_lookup_tables_from_prod').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_sp_drop_tables",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[[TDM].[DROP_TABLES_SP]",
+										"storedProcedureParameters": {
+											"TABLE_NAME": {
+												"value": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"TABLE_SCHEMA_NAME": {
+												"value": {
+													"value": "@item().TABLE_SCHEMA_NAME",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "ls_adt_synapse_athena",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "a_get_sqlpackage_parameters",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_tables_from_prod",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderStoredProcedureName": "[[TDM].[BUILD_DACPAC_PUBLISH_PARAMETERS]",
+								"storedProcedureParameters": {
+									"SqlpackageFilters": {
+										"type": "String",
+										"value": "output"
+									}
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_az_fn_generate_and_deploy_dacpac",
+						"type": "AzureFunctionActivity",
+						"dependsOn": [
+							{
+								"activity": "a_for_each_drop_tables_from_target",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "a_get_sqlpackage_parameters",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"functionName": "DacpacMgmtHttpStart",
+							"method": "POST",
+							"headers": {},
+							"body": {
+								"value": "@activity('a_get_sqlpackage_parameters').output.value[0]",
+								"type": "Expression"
+							}
+						},
+						"linkedServiceName": {
+							"referenceName": "ls_adt_az_fnc",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "a_until_dacpac_is_deployed",
+						"description": "wait until the dacpac is generated from the source and deployed to the target database",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "a_az_fn_generate_and_deploy_dacpac",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@not(or(equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Pending'), equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Running')))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_wait_for_15_sec",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 15
+									}
+								},
+								{
+									"name": "a_check_azure_fnc_status",
+									"description": "Check if Azure Function is still running by looking at output of status uri",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "a_wait_for_15_sec",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@activity('a_az_fn_generate_and_deploy_dacpac').output.statusQueryGetUri",
+											"type": "Expression"
+										},
+										"method": "GET",
+										"headers": {}
+									}
+								}
+							],
+							"timeout": "7.00:00:00"
+						}
+					},
+					{
+						"name": "a_if_package_deployed_successfully",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "a_until_dacpac_is_deployed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals(activity('a_check_azure_fnc_status').output.output,'Success')",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "a_cancel_pipeline",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "https://management.azure.com/subscriptions/82e558b8-c7c8-4b09-a486-4cd1b34b2eea/resourceGroups/costcoedftest/providers/Microsoft.DataFactory/factories/@{pipeline().DataFactory}/pipelineruns/@{pipeline().RunId}/cancel?api-version=2018-06-01",
+											"type": "Expression"
+										},
+										"method": "POST",
+										"headers": {},
+										"body": {
+											"Reason": "Stopping the pipeline as dacpac deployment failed"
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "a_wait_dummy_1",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 1
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "a_for_each_table",
+						"description": "copy each table from ADLS to Synapse",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_full_load_tables_without_identity",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('a_lookup_full_load_tables_without_identity').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_copy_prod_to_adt_table",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "ParquetSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"wildcardFolderPath": {
+													"value": "@item().ADLS_TABLE_FOLDER_PATH",
+													"type": "Expression"
+												},
+												"wildcardFileName": "*"
+											}
+										},
+										"sink": {
+											"type": "SqlDWSink",
+											"allowPolyBase": true,
+											"polyBaseSettings": {
+												"rejectValue": 0,
+												"rejectType": "value",
+												"useTypeDefault": false
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "ds_spt_datalake_generic",
+											"type": "DatasetReference",
+											"parameters": {
+												"folder_path": {
+													"value": "@item().ADLS_TABLE_FOLDER_PATH",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "ds_adt_synapse_generic",
+											"type": "DatasetReference",
+											"parameters": {
+												"TABLE_NAME": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												},
+												"SCHEMA_NAME": {
+													"value": "@item().TABLE_SCHEMA_NAME",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						}
+					},
+					{
+						"name": "a_lookup_full_load_tables_without_identity",
+						"description": "lookup table to copy full load tables",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_if_package_deployed_successfully",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 0",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_lookup_full_load_tables_with_identity",
+						"description": "lookup table to copy full load tables",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_if_package_deployed_successfully",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 1",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					}
+				],
+				"annotations": [],
+				"lastPublishTime": "2020-11-16T16:56:28Z"
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/ds_prod_synapse')]",
+				"[concat(variables('factoryId'), '/linkedServices/ls_adt_az_fnc')]",
+				"[concat(variables('factoryId'), '/linkedServices/ls_adt_synapse_athena')]",
+				"[concat(variables('factoryId'), '/datasets/ds_spt_datalake_generic')]",
+				"[concat(variables('factoryId'), '/datasets/ds_adt_synapse_generic')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_adt_synapse_generic')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_adt_synapse_generic",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"TABLE_NAME": {
+						"type": "string"
+					},
+					"SCHEMA_NAME": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "AzureSqlDWTable",
+				"schema": [],
+				"typeProperties": {
+					"schema": {
+						"value": "@dataset().SCHEMA_NAME",
+						"type": "Expression"
+					},
+					"table": {
+						"value": "@dataset().TABLE_NAME",
+						"type": "Expression"
+					}
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_adt_synapse_generic')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_prod_synapse')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_prod_synapse_athena",
+					"type": "LinkedServiceReference"
+				},
+				"annotations": [],
+				"type": "AzureSqlDWTable",
+				"schema": [
+					{
+						"name": "TABLE_EXECUTION_ID",
+						"type": "bigint",
+						"precision": 19
+					},
+					{
+						"name": "OBJECT_ID",
+						"type": "bigint",
+						"precision": 19
+					},
+					{
+						"name": "TABLE_SCHEMA_NAME",
+						"type": "varchar"
+					},
+					{
+						"name": "TABLE_NAME",
+						"type": "varchar"
+					},
+					{
+						"name": "ADLS_TABLE_FOLDER_PATH",
+						"type": "varchar"
+					},
+					{
+						"name": "COPY_PIPELINE_RUN_ID",
+						"type": "uniqueidentifier"
+					},
+					{
+						"name": "COPY_ACTIVITY_RUN_ID",
+						"type": "uniqueidentifier"
+					},
+					{
+						"name": "ADF_ACTIVITY_EXECUTION_STATUS",
+						"type": "nvarchar"
+					},
+					{
+						"name": "CREATE_DB_TIMESTAMP_UTC",
+						"type": "datetime",
+						"precision": 23,
+						"scale": 3
+					},
+					{
+						"name": "UPDATE_DB_TIMESTAMP_UTC",
+						"type": "datetime",
+						"precision": 23,
+						"scale": 3
+					}
+				],
+				"typeProperties": {
+					"schema": "TDM",
+					"table": "DATA_COPY_PIPELINE_EXECUTION_LOG"
+				}
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_prod_synapse_athena')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ds_spt_datalake_generic')]",
+			"type": "Microsoft.DataFactory/factories/datasets",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"linkedServiceName": {
+					"referenceName": "ls_spt_datalake",
+					"type": "LinkedServiceReference"
+				},
+				"parameters": {
+					"folder_path": {
+						"type": "string"
+					}
+				},
+				"annotations": [],
+				"type": "Parquet",
+				"typeProperties": {
+					"location": {
+						"type": "AzureBlobFSLocation",
+						"folderPath": {
+							"value": "@dataset().folder_path",
+							"type": "Expression"
+						},
+						"fileSystem": "tdm"
+					},
+					"compressionCodec": "snappy"
+				},
+				"schema": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/linkedServices/ls_spt_datalake')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_adt_az_fnc')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureFunction",
+				"typeProperties": {
+					"functionAppUrl": "[parameters('ls_adt_az_fnc_properties_typeProperties_functionAppUrl')]",
+					"functionKey": {
+						"type": "SecureString",
+						"value": "[parameters('ls_adt_az_fnc_functionKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_adt_synapse_athena')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('ls_adt_synapse_athena_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_adt_synapse_generic')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('ls_adt_synapse_generic_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_prod_synapse_athena')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureSqlDW",
+				"typeProperties": {
+					"connectionString": "[parameters('ls_prod_synapse_athena_connectionString')]"
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/ls_spt_datalake')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureBlobFS",
+				"typeProperties": {
+					"url": "[parameters('ls_spt_datalake_properties_typeProperties_url')]",
+					"accountKey": {
+						"type": "SecureString",
+						"value": "[parameters('ls_spt_datalake_accountKey')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}

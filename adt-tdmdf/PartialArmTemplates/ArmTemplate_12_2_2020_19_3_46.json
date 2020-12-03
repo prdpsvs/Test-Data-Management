@@ -1,0 +1,458 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adt-tdmdf"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "[concat(parameters('factoryName'), '/pl_tdm_non_prd_pipeline')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "a_lookup_tables_from_prod",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_for_each_drop_tables_from_target",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_tables_from_prod",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('a_lookup_tables_from_prod').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_sp_drop_tables",
+									"type": "SqlServerStoredProcedure",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"storedProcedureName": "[[TDM].[DROP_TABLES_SP]",
+										"storedProcedureParameters": {
+											"TABLE_NAME": {
+												"value": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												},
+												"type": "String"
+											},
+											"TABLE_SCHEMA_NAME": {
+												"value": {
+													"value": "@item().TABLE_SCHEMA_NAME",
+													"type": "Expression"
+												},
+												"type": "String"
+											}
+										}
+									},
+									"linkedServiceName": {
+										"referenceName": "ls_adt_synapse_athena",
+										"type": "LinkedServiceReference"
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "a_get_sqlpackage_parameters",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_tables_from_prod",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderStoredProcedureName": "[[TDM].[BUILD_DACPAC_PUBLISH_PARAMETERS]",
+								"storedProcedureParameters": {
+									"SqlpackageFilters": {
+										"type": "String",
+										"value": "output"
+									}
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_az_fn_generate_and_deploy_dacpac",
+						"type": "AzureFunctionActivity",
+						"dependsOn": [
+							{
+								"activity": "a_for_each_drop_tables_from_target",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							},
+							{
+								"activity": "a_get_sqlpackage_parameters",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"functionName": "DacpacMgmtHttpStart",
+							"method": "POST",
+							"body": {
+								"value": "@activity('a_get_sqlpackage_parameters').output.value[0]",
+								"type": "Expression"
+							}
+						},
+						"linkedServiceName": {
+							"referenceName": "ls_adt_az_fnc",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "a_until_dacpac_is_deployed",
+						"description": "wait until the dacpac is generated from the source and deployed to the target database",
+						"type": "Until",
+						"dependsOn": [
+							{
+								"activity": "a_az_fn_generate_and_deploy_dacpac",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@not(or(equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Pending'), equals(activity('a_check_azure_fnc_status').output.runtimeStatus, 'Running')))",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_wait_for_15_sec",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 15
+									}
+								},
+								{
+									"name": "a_check_azure_fnc_status",
+									"description": "Check if Azure Function is still running by looking at output of status uri",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "a_wait_for_15_sec",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "@activity('a_az_fn_generate_and_deploy_dacpac').output.statusQueryGetUri",
+											"type": "Expression"
+										},
+										"method": "GET"
+									}
+								}
+							],
+							"timeout": "7.00:00:00"
+						}
+					},
+					{
+						"name": "a_if_package_deployed_successfully",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "a_until_dacpac_is_deployed",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@equals(activity('a_check_azure_fnc_status').output.output,'Success')",
+								"type": "Expression"
+							},
+							"ifFalseActivities": [
+								{
+									"name": "a_cancel_pipeline",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"url": {
+											"value": "https://management.azure.com/subscriptions/82e558b8-c7c8-4b09-a486-4cd1b34b2eea/resourceGroups/costcoedftest/providers/Microsoft.DataFactory/factories/@{pipeline().DataFactory}/pipelineruns/@{pipeline().RunId}/cancel?api-version=2018-06-01",
+											"type": "Expression"
+										},
+										"method": "POST",
+										"body": {
+											"Reason": "Stopping the pipeline as dacpac deployment failed"
+										}
+									}
+								}
+							],
+							"ifTrueActivities": [
+								{
+									"name": "a_wait_dummy_1",
+									"type": "Wait",
+									"dependsOn": [],
+									"userProperties": [],
+									"typeProperties": {
+										"waitTimeInSeconds": 1
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "a_for_each_table",
+						"description": "copy each table from ADLS to Synapse",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "a_lookup_full_load_tables_without_identity",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('a_lookup_full_load_tables_without_identity').output.value",
+								"type": "Expression"
+							},
+							"activities": [
+								{
+									"name": "a_copy_prod_to_adt_table",
+									"type": "Copy",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "7.00:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"source": {
+											"type": "ParquetSource",
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"wildcardFolderPath": {
+													"value": "@item().ADLS_TABLE_FOLDER_PATH",
+													"type": "Expression"
+												},
+												"wildcardFileName": "*"
+											}
+										},
+										"sink": {
+											"type": "SqlDWSink",
+											"allowPolyBase": true,
+											"polyBaseSettings": {
+												"rejectValue": 0,
+												"rejectType": "value",
+												"useTypeDefault": false
+											}
+										},
+										"enableStaging": false
+									},
+									"inputs": [
+										{
+											"referenceName": "ds_spt_datalake_generic",
+											"type": "DatasetReference",
+											"parameters": {
+												"folder_path": {
+													"value": "@item().ADLS_TABLE_FOLDER_PATH",
+													"type": "Expression"
+												}
+											}
+										}
+									],
+									"outputs": [
+										{
+											"referenceName": "ds_adt_synapse_generic",
+											"type": "DatasetReference",
+											"parameters": {
+												"TABLE_NAME": {
+													"value": "@item().TABLE_NAME",
+													"type": "Expression"
+												},
+												"SCHEMA_NAME": {
+													"value": "@item().TABLE_SCHEMA_NAME",
+													"type": "Expression"
+												}
+											}
+										}
+									]
+								}
+							]
+						}
+					},
+					{
+						"name": "a_lookup_full_load_tables_without_identity",
+						"description": "lookup table to copy full load tables",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_if_package_deployed_successfully",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 0",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "a_lookup_full_load_tables_with_identity",
+						"description": "lookup table to copy full load tables",
+						"type": "Lookup",
+						"dependsOn": [
+							{
+								"activity": "a_if_package_deployed_successfully",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "7.00:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "SqlDWSource",
+								"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 1",
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "ds_prod_synapse",
+								"type": "DatasetReference"
+							},
+							"firstRowOnly": false
+						}
+					}
+				],
+				"annotations": [],
+				"lastPublishTime": "2020-11-16T16:56:28Z"
+			},
+			"dependsOn": []
+		}
+	]
+}

@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "adt-tdmdf"
+		},
+		"ls_adt_az_fnc_functionKey": {
+			"value": ""
+		},
+		"ls_adt_synapse_athena_connectionString": {
+			"value": ""
+		},
+		"ls_adt_synapse_generic_connectionString": {
+			"value": ""
+		},
+		"ls_prod_synapse_athena_connectionString": {
+			"value": ""
+		},
+		"ls_spt_datalake_accountKey": {
+			"value": ""
+		},
+		"ls_adt_az_fnc_properties_typeProperties_functionAppUrl": {
+			"value": "https://generatefacpac.azurewebsites.net"
+		},
+		"ls_spt_datalake_properties_typeProperties_url": {
+			"value": "https://sptathenasa.dfs.core.windows.net"
+		},
+		"containerUri": {
+			"value": ""
+		},
+		"containerSasToken": {
+			"value": ""
+		}
+	}
+}
