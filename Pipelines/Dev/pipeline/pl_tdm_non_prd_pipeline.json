@@ -318,7 +318,7 @@
 											"value": "@item().ADLS_TABLE_FOLDER_PATH",
 											"type": "Expression"
 										},
-										"wildcardFileName": "*.parquet"
+										"wildcardFileName": "*"
 									}
 								},
 								"sink": {
@@ -330,17 +330,7 @@
 										"useTypeDefault": false
 									}
 								},
-								"enableStaging": true,
-								"stagingSettings": {
-									"linkedServiceName": {
-										"referenceName": "ls_spt_datalake",
-										"type": "LinkedServiceReference"
-									},
-									"path": {
-										"value": "tdm/temp/",
-										"type": "Expression"
-									}
-								}
+								"enableStaging": false
 							},
 							"inputs": [
 								{
@@ -398,6 +388,40 @@
 					"source": {
 						"type": "SqlDWSource",
 						"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 0",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "ds_prod_synapse",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "a_lookup_full_load_tables_with_identity",
+				"description": "lookup table to copy full load tables",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "a_if_package_deployed_successfully",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "7.00:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "SqlDWSource",
+						"sqlReaderQuery": "SELECT [TABLE_SCHEMA_NAME],[TABLE_NAME],[ADLS_TABLE_FOLDER_PATH],[HAS_IDENTITY_COLUMN] \nFROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG] WHERE TABLE_EXECUTION_ID\nIN (SELECT MAX(TABLE_EXECUTION_ID) FROM [TDM].[DATA_COPY_PIPELINE_EXECUTION_LOG])\nAND HAS_IDENTITY_COLUMN = 1",
 						"queryTimeout": "02:00:00",
 						"partitionOption": "None"
 					},
